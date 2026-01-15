@@ -46,7 +46,14 @@ Run this command from within a frontend project directory.
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  6. Done - Show next steps                                  │
+│  6. Check & Update project memory                           │
+│     Check CLAUDE.local.md or .claude/rules/ for api-tester  │
+│     info. If not found, ask user to add it.                 │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│  7. Done - Show next steps                                  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -145,26 +152,71 @@ Add api-tester directory to frontend's `.claude/settings.local.json`:
 }
 ```
 
-## Step 6: Display Summary
+## Step 6: Check & Update Project Memory
+
+After creating the api-tester project, check if the frontend project's memory files contain information about the api-tester.
+
+### Files to Check
+
+1. `CLAUDE.local.md` - Look for "API Tester" section
+2. `.claude/rules/*.md` - Look for api-tester related rules
+
+### If NOT Found
+
+Ask user if they want to add api-tester info to project memory:
 
 ```
-API Tester created successfully!
+I noticed your project memory doesn't have information about the API Tester.
+Would you like me to add it to CLAUDE.local.md?
 
-Location: /Users/me/projects/my-dashboard-api-tester
+This will help Claude remember how to use the api-tester in future sessions.
 
-Environments configured:
-  - development (http://localhost:3001) - auto-execute: YES
-  - staging (https://api-staging.example.com) - auto-execute: YES
-  - production (https://api.example.com) - auto-execute: NO
-
-Next steps:
-  1. cd ../my-dashboard-api-tester
-  2. Copy a curl from browser DevTools (Network tab -> Right click -> Copy as cURL)
-  3. Paste it here and I'll handle token extraction and request execution
-
-Or use from this project:
-  - Curl paste workflow works here too (api-tester path is now allowed)
+[Add to memory] [Skip]
 ```
+
+### If User Confirms
+
+Add the following section to `CLAUDE.local.md`:
+
+    ## API Tester
+
+    Standalone project for testing APIs across environments.
+
+    - **Location**: `<api-tester-path>`
+    - **Usage**: Paste curl from browser DevTools to extract token and execute requests
+    - **Environments**: <list environments with auto-execute status>
+
+    Quick commands:
+
+    ```bash
+    cd <relative-path-to-api-tester>
+    ./scripts/request.sh GET /api/v1/endpoint
+    ./scripts/request.sh POST /api/v1/endpoint '{"key": "value"}'
+    ./scripts/generate-postman.sh  # Generate Postman collection
+    ```
+
+### If Already Exists
+
+Skip this step and proceed to summary.
+
+## Step 7: Display Summary
+
+    API Tester created successfully!
+
+    Location: /Users/me/projects/my-dashboard-api-tester
+
+    Environments configured:
+    - development (http://localhost:3001) - auto-execute: YES
+    - staging (https://api-staging.example.com) - auto-execute: YES
+    - production (https://api.example.com) - auto-execute: NO
+
+    Next steps:
+    1. cd ../my-dashboard-api-tester
+    2. Copy a curl from browser DevTools (Network tab -> Right click -> Copy as cURL)
+    3. Paste it here and I'll handle token extraction and request execution
+
+    Or use from this project:
+    - Curl paste workflow works here too (api-tester path is now allowed)
 
 ## Environment Safety Rules
 
@@ -271,6 +323,14 @@ Created:
 
 Updated frontend project:
   - Added api-tester path to .claude/settings.local.json
+
+Checking project memory...
+  - CLAUDE.local.md: No api-tester info found
+  - Would you like me to add it? [Add to memory] [Skip]
+
+User: Add to memory
+
+Claude: Added API Tester section to CLAUDE.local.md
 
 Done! Your API tester is ready at:
   /Users/me/projects/my-dashboard-api-tester
