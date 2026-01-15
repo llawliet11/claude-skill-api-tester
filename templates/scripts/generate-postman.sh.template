@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+# Generate Postman Collection and Environment files from api-endpoints.json
+# Usage: ./scripts/generate-postman.sh
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Config
+ENDPOINTS_FILE="$PROJECT_DIR/reference/api-endpoints.json"
+ENVIRONMENTS_FILE="$PROJECT_DIR/config/environments.json"
+OUTPUT_DIR="$PROJECT_DIR/postman"
+
+# Check source files
+if [[ ! -f "$ENDPOINTS_FILE" ]]; then
+    echo "Error: Endpoints file not found: $ENDPOINTS_FILE"
+    exit 1
+fi
+
+if [[ ! -f "$ENVIRONMENTS_FILE" ]]; then
+    echo "Error: Environments file not found: $ENVIRONMENTS_FILE"
+    exit 1
+fi
+
+# Create output directories
+mkdir -p "$OUTPUT_DIR/environments"
+
+echo "=== Postman Collection Generator ==="
+echo "Source: $ENDPOINTS_FILE"
+echo "Output: $OUTPUT_DIR"
+echo ""
+
+# Generate stable collection ID
+COLLECTION_ID=$(echo -n "{{PROJECT_NAME}}-api-collection" | md5 | cut -c1-32)
+COLLECTION_ID="${COLLECTION_ID:0:8}-${COLLECTION_ID:8:4}-${COLLECTION_ID:12:4}-${COLLECTION_ID:16:4}-${COLLECTION_ID:20:12}"
+
+echo "Generating collection..."
+
+# Use a single jq call to generate the entire collection
+jq --arg collection_id "$COLLECTION_ID" \
+   --arg today "$(date +%Y-%m-%d)" \
+   --arg project_name "{{PROJECT_DISPLAY_NAME}}" \
+   '
+# Helper function to convert :param to {{param}}
+def convert_params:
+  gsub(":(?<p>[a-zA-Z_][a-zA-Z0-9_]*)"; "{{\(.p)}}");
+
+# Helper function to split path into segments
+def path_segments:
+  split("/") | map(select(. != "")) | map(gsub(":(?<p>[a-zA-Z_][a-zA-Z0-9_]*)"; "{{\(.p)}}"));
+
+# Helper function to generate payload template
+def payload_template:
+  if . == null then "{}"
+  else to_entries | map({(.key): (if .value == "string" then "" elif .value == "number" then 0 elif .value == "boolean" then false else .value end)}) | add // {} | tojson
+  end;
+
+# Build request items for each endpoint
+def build_request($category; $name; $endpoint):
+  {
+    name: $name,
+    request: {
+      method: $endpoint.method,
+      header: [
+        {key: "Content-Type", value: "application/json", type: "text"}
+      ],
+      url: {
+        raw: ("{{baseUrl}}" + ($endpoint.path | convert_params)),
+        host: ["{{baseUrl}}"],
+        path: ($endpoint.path | path_segments)
+      } + (if $endpoint.queryParams then {
+        query: ($endpoint.queryParams | to_entries | map({key: .key, value: "", description: .value}))
+      } else {} end),
+      description: ($endpoint.description // "")
+    } + (if ($endpoint.method == "POST" or $endpoint.method == "PUT" or $endpoint.method == "PATCH") then {
+      body: {
+        mode: "raw",
+        raw: ($endpoint.payload | payload_template),
+        options: {raw: {language: "json"}}
+      }
+    } else {} end),
+    response: []
+  };
+
+# Build folders from categories
+def build_folders:
+  .endpoints | to_entries | map({
+    name: .key,
+    item: (.value | to_entries | map(build_request(.key; .key; .value)))
+  });
+
+# Main collection structure
+{
+  info: {
+    _postman_id: $collection_id,
+    name: ($project_name + " API"),
+    description: ("Auto-generated from " + $project_name + "-api-tester. Last updated: " + $today),
+    schema: "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  item: build_folders,
+  auth: {
+    type: "bearer",
+    bearer: [{key: "token", value: "{{token}}", type: "string"}]
+  },
+  event: [
+    {
+      listen: "prerequest",
+      script: {
+        type: "text/javascript",
+        exec: [
+          "// Log current environment",
+          "console.log(\"Base URL:\", pm.variables.get(\"baseUrl\"));",
+          "",
+          "// Generate timestamp variable",
+          "pm.variables.set(\"timestamp\", new Date().toISOString());"
+        ]
+      }
+    }
+  ],
+  variable: [
+    {key: "baseUrl", value: "{{DEFAULT_BASE_URL}}", type: "string"},
+    {key: "token", value: "", type: "string"}
+  ]
+}
+' "$ENDPOINTS_FILE" > "$OUTPUT_DIR/{{PROJECT_NAME}}-api-collection.json"
+
+echo "  Created: $OUTPUT_DIR/{{PROJECT_NAME}}-api-collection.json"
+
+# Generate environment files
+echo ""
+echo "Generating environment files..."
+
+jq -r 'keys[]' "$ENVIRONMENTS_FILE" | while read env; do
+    ENV_ID=$(echo -n "{{PROJECT_NAME}}-$env" | md5 | cut -c1-32)
+    ENV_ID="${ENV_ID:0:8}-${ENV_ID:8:4}-${ENV_ID:12:4}-${ENV_ID:16:4}-${ENV_ID:20:12}"
+
+    jq --arg env "$env" --arg env_id "$ENV_ID" --arg project_name "{{PROJECT_DISPLAY_NAME}}" '
+    .[$env] | {
+        id: $env_id,
+        name: ($project_name + " - " + .name),
+        values: [
+            {key: "baseUrl", value: .baseUrl, enabled: true, type: "default"},
+            {key: "token", value: "", enabled: true, type: "secret"}
+        ],
+        _postman_variable_scope: "environment"
+    }
+    ' "$ENVIRONMENTS_FILE" > "$OUTPUT_DIR/environments/{{PROJECT_NAME}}-$env.postman_environment.json"
+
+    echo "  Created: $OUTPUT_DIR/environments/{{PROJECT_NAME}}-$env.postman_environment.json"
+done
+
+# Summary
+echo ""
+echo "=== Generation Complete ==="
+echo ""
+echo "Files created:"
+echo "  - $OUTPUT_DIR/{{PROJECT_NAME}}-api-collection.json"
+ls "$OUTPUT_DIR/environments/"*.json 2>/dev/null | while read f; do
+    echo "  - $f"
+done
+
+echo ""
+echo "To import into Postman:"
+echo "  1. Open Postman"
+echo "  2. Click 'Import' button"
+echo "  3. Drag and drop the collection file"
+echo "  4. Import environment files from environments/ folder"
+echo "  5. Select environment from dropdown (top-right)"
+echo "  6. Add your token to the 'token' variable"
+echo ""
+
+# Statistics
+TOTAL_CATEGORIES=$(jq '.endpoints | keys | length' "$ENDPOINTS_FILE")
+TOTAL_ENDPOINTS=$(jq '[.endpoints | to_entries[] | .value | to_entries | length] | add' "$ENDPOINTS_FILE")
+TOTAL_ENVS=$(jq 'keys | length' "$ENVIRONMENTS_FILE")
+
+echo "Statistics:"
+echo "  - Categories: $TOTAL_CATEGORIES"
+echo "  - Endpoints: $TOTAL_ENDPOINTS"
+echo "  - Environments: $TOTAL_ENVS"

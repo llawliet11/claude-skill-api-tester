@@ -1,0 +1,74 @@
+# API Testing Rules
+
+## Authentication
+
+Before testing any API:
+
+1. Check if token exists in `config/state.json`
+2. If no token or expired, paste a curl from browser to save token
+
+## Environment Selection
+
+| Environment | Use Case |
+|-------------|----------|
+{{ENVIRONMENT_USE_CASES}}
+
+## Testing Workflow
+
+### 1. Simple GET Request
+
+```bash
+./scripts/request.sh GET /api/endpoint
+```
+
+### 2. POST with Payload
+
+```bash
+./scripts/request.sh POST /api/endpoint '{"key": "value"}'
+```
+
+### 3. With Path Parameters
+
+Replace `:paramName` with actual values:
+```bash
+# From: /api/resource/:id
+# To:
+./scripts/request.sh GET /api/resource/123
+```
+
+## Response Handling
+
+### Save Response
+
+```bash
+# Last response is auto-saved to config/.last_response.json
+# To save permanently:
+cp config/.last_response.json responses/<name>.json
+```
+
+### Generate TypeScript Interface
+
+When you have a response, generate interface by:
+1. Reading `config/.last_response.json`
+2. Converting JSON structure to TypeScript interface
+3. Save to appropriate location in source project
+
+## Best Practices
+
+1. **Always test in development/staging first** before production
+2. **Save baseline responses** for regression testing
+3. **Document new endpoints** in `reference/api-endpoints.json`
+4. **Use descriptive names** for saved responses
+
+## Common Issues
+
+### 401 Unauthorized
+- Token expired, paste a new curl from browser
+
+### 404 Not Found
+- Check endpoint path in `reference/api-endpoints.json`
+- Verify path parameters are correct
+
+### 500 Server Error
+- Check payload format
+- Verify required fields are present

@@ -1,0 +1,40 @@
+# Tokens - NEVER commit (contains JWT)
+config/tokens/
+
+# State file
+config/state.json
+
+# Last response cache
+config/.last_response.json
+
+# Saved responses (may contain sensitive data)
+responses/
+
+# Old credentials file (deprecated)
+config/credentials.json
+
+# Claude local memory (personal settings)
+CLAUDE.local.md
+
+# Claude AI trace
+.claude/
+.claude/settings.local.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Temp files
+tmp/
+temp/
+*.tmp

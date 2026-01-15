@@ -1,0 +1,65 @@
+# {{PROJECT_DISPLAY_NAME}} API Tester
+
+A development tool for testing {{PROJECT_DISPLAY_NAME}} APIs across environments with Claude Code assistance.
+
+## Source Project
+
+The main application (source of API definitions):
+```
+{{SOURCE_PROJECT_PATH}}
+```
+
+## Project Structure
+
+```
+{{PROJECT_NAME}}/
+├── CLAUDE.md                     # Project instructions (this file)
+├── .claude/
+│   └── rules/
+│       ├── curl-workflow.md      # How to handle curl paste
+│       └── api-testing.md        # API testing guidelines
+├── config/
+│   ├── environments.json         # Environment configs
+│   ├── tokens/                   # JWT tokens (git-ignored)
+│   └── state.json                # Current state (git-ignored)
+├── reference/
+│   └── api-endpoints.json        # All known API endpoints
+├── scripts/
+│   ├── request.sh                # API request script
+│   ├── parse-curl.sh             # Curl parser
+│   └── generate-postman.sh       # Postman generator
+├── responses/                    # Saved API responses (git-ignored)
+└── postman/                      # Generated Postman files
+```
+
+## Environments
+
+| Environment | API URL | Use Case |
+|-------------|---------|----------|
+{{ENVIRONMENT_TABLE}}
+
+## Quick Commands
+
+```bash
+# Test endpoint
+./scripts/request.sh GET /api/user/profile
+./scripts/request.sh POST /api/endpoint '{"key": "value"}'
+
+# Generate Postman collection
+./scripts/generate-postman.sh
+```
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `reference/api-endpoints.json` | All documented API endpoints |
+| `config/state.json` | Current auth token & environment |
+| `.claude/rules/*.md` | Claude instructions for this project |
+
+## Workflow
+
+1. **Paste Curl**: Copy curl from browser DevTools, paste here
+2. **Test**: `./scripts/request.sh <METHOD> <PATH> [BODY]`
+3. **Save**: Responses auto-saved to `responses/<env>/`
+4. **Export**: Generate Postman collection with `./scripts/generate-postman.sh`

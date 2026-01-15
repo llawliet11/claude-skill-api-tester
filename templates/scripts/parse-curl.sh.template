@@ -1,0 +1,123 @@
+#!/bin/bash
+
+# Parse curl command and extract token, URL, method, body
+# Usage: ./parse-curl.sh "<curl command>"
+# Or pipe: echo "<curl command>" | ./parse-curl.sh
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$SCRIPT_DIR/.."
+CONFIG_DIR="$PROJECT_DIR/config"
+
+# Read curl from argument or stdin
+if [ -n "$1" ]; then
+    CURL_CMD="$1"
+else
+    CURL_CMD=$(cat)
+fi
+
+# Extract URL
+URL=$(echo "$CURL_CMD" | grep -oE "https?://[^'\"[:space:]]+" | head -1)
+
+# Extract token from Authorization header
+TOKEN=$(echo "$CURL_CMD" | grep -oE "Bearer [^'\"]+|bearer [^'\"']+" | head -1 | sed 's/Bearer //i')
+
+# Extract method (default GET)
+if echo "$CURL_CMD" | grep -qE "\-X\s*(POST|PUT|PATCH|DELETE)"; then
+    METHOD=$(echo "$CURL_CMD" | grep -oE "\-X\s*(POST|PUT|PATCH|DELETE)" | awk '{print $2}')
+elif echo "$CURL_CMD" | grep -qE "\-\-request\s*(POST|PUT|PATCH|DELETE)"; then
+    METHOD=$(echo "$CURL_CMD" | grep -oE "\-\-request\s*(POST|PUT|PATCH|DELETE)" | awk '{print $2}')
+elif echo "$CURL_CMD" | grep -qE "\-d|\-\-data"; then
+    METHOD="POST"
+else
+    METHOD="GET"
+fi
+
+# Extract body if present
+BODY=""
+if echo "$CURL_CMD" | grep -qE "\-d\s*'|--data\s*'"; then
+    BODY=$(echo "$CURL_CMD" | grep -oE "\-d\s*'[^']*'|--data\s*'[^']*'" | sed "s/-d\s*'//;s/--data\s*'//;s/'$//")
+elif echo "$CURL_CMD" | grep -qE '\-d\s*"|--data\s*"'; then
+    BODY=$(echo "$CURL_CMD" | grep -oE '\-d\s*"[^"]*"|--data\s*"[^"]*"' | sed 's/-d\s*"//;s/--data\s*"//;s/"$//')
+fi
+
+# Extract endpoint path from URL
+ENDPOINT=$(echo "$URL" | sed -E 's|https?://[^/]+||')
+
+# Determine environment from URL
+# {{URL_PATTERNS}}
+ENV="{{DEFAULT_ENV}}"  # Default fallback
+
+# Output parsed info
+echo "=== Parsed Curl ==="
+echo "URL: $URL"
+echo "Endpoint: $ENDPOINT"
+echo "Method: $METHOD"
+echo "Environment: $ENV"
+echo "Token: ${TOKEN:0:50}..."
+if [ -n "$BODY" ]; then
+    echo "Body: $BODY"
+fi
+echo "==================="
+
+# Save token to environment-specific file
+if [ -n "$TOKEN" ]; then
+    # Calculate expiry (7 days from now)
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        EXPIRES_AT=$(date -v+7d -u +%Y-%m-%dT%H:%M:%SZ)
+        NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    else
+        EXPIRES_AT=$(date -d "+7 days" -u +%Y-%m-%dT%H:%M:%SZ)
+        NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    fi
+
+    # Ensure tokens directory exists
+    mkdir -p "$CONFIG_DIR/tokens"
+
+    # Save token to environment-specific file
+    TOKEN_FILE="$CONFIG_DIR/tokens/$ENV.json"
+    cat > "$TOKEN_FILE" << EOF
+{
+  "token": "$TOKEN",
+  "expiresAt": "$EXPIRES_AT",
+  "lastUpdated": "$NOW",
+  "source": "browser-curl"
+}
+EOF
+
+    # Update active environment in state
+    cat > "$CONFIG_DIR/state.json" << EOF
+{
+  "activeEnvironment": "$ENV",
+  "lastRequest": null
+}
+EOF
+
+    echo ""
+    echo "Token saved to: config/tokens/$ENV.json"
+    echo "Active environment: $ENV"
+    echo "Expires: $EXPIRES_AT"
+
+    # Warn if production
+    if [ "$ENV" = "production" ]; then
+        echo ""
+        echo "WARNING: Production environment detected!"
+        echo "Execute requests with caution."
+    fi
+fi
+
+# Output as JSON for programmatic use
+echo ""
+echo "=== JSON Output ==="
+cat << EOF
+{
+  "url": "$URL",
+  "endpoint": "$ENDPOINT",
+  "method": "$METHOD",
+  "environment": "$ENV",
+  "hasToken": $([ -n "$TOKEN" ] && echo "true" || echo "false"),
+  "hasBody": $([ -n "$BODY" ] && echo "true" || echo "false"),
+  "isProduction": $([ "$ENV" = "production" ] && echo "true" || echo "false")
+}
+EOF

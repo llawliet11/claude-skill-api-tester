@@ -1,0 +1,128 @@
+#!/bin/bash
+
+# {{PROJECT_NAME}} API Request Script
+# Usage: ./request.sh <method> <endpoint> [body] [env]
+# Example: ./request.sh GET /api/user/profile
+# Example: ./request.sh POST /api/reports '{"siteId": "123"}'
+# Example: ./request.sh GET /api/user/profile '' production
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$SCRIPT_DIR/.."
+CONFIG_DIR="$PROJECT_DIR/config"
+
+METHOD="${1:-GET}"
+ENDPOINT="$2"
+BODY="$3"
+ENV_OVERRIDE="$4"
+
+if [ -z "$ENDPOINT" ]; then
+    echo "Usage: ./request.sh <method> <endpoint> [body] [env]"
+    echo ""
+    echo "Examples:"
+    echo "  ./request.sh GET /api/user/profile"
+    echo "  ./request.sh POST /api/reports '{\"siteId\": \"123\"}'"
+    echo "  ./request.sh GET /api/user/profile '' production"
+    exit 1
+fi
+
+# Read state for active environment
+STATE_FILE="$CONFIG_DIR/state.json"
+if [ -n "$ENV_OVERRIDE" ]; then
+    ENV="$ENV_OVERRIDE"
+elif [ -f "$STATE_FILE" ]; then
+    ENV=$(jq -r '.activeEnvironment // "{{DEFAULT_ENV}}"' "$STATE_FILE")
+else
+    ENV="{{DEFAULT_ENV}}"
+fi
+
+# Read token from environment-specific file
+TOKEN_FILE="$CONFIG_DIR/tokens/$ENV.json"
+if [ ! -f "$TOKEN_FILE" ]; then
+    echo "Error: No token file for environment '$ENV'"
+    echo "Please paste a curl from browser to save token."
+    exit 1
+fi
+
+TOKEN=$(jq -r '.token' "$TOKEN_FILE")
+if [ "$TOKEN" == "null" ] || [ -z "$TOKEN" ]; then
+    echo "Error: No token found for environment '$ENV'"
+    echo "Please paste a curl from browser to save token."
+    exit 1
+fi
+
+# Load environment config
+ENV_CONFIG="$CONFIG_DIR/environments.json"
+BASE_URL=$(jq -r ".$ENV.baseUrl" "$ENV_CONFIG")
+CAN_EXECUTE=$(jq -r ".$ENV.canExecute" "$ENV_CONFIG")
+
+if [ "$BASE_URL" == "null" ]; then
+    echo "Error: Environment '$ENV' not found in environments.json"
+    exit 1
+fi
+
+# Warn and block production unless explicitly allowed
+if [ "$ENV" = "production" ] && [ "$CAN_EXECUTE" = "false" ]; then
+    echo "WARNING: Production environment!"
+    echo "Execution blocked by default. Use env override to force:"
+    echo "  ./request.sh $METHOD $ENDPOINT '$BODY' production"
+    exit 1
+fi
+
+# Build full URL
+if [[ "$ENDPOINT" == /* ]]; then
+    URL="$BASE_URL$ENDPOINT"
+else
+    URL="$BASE_URL/$ENDPOINT"
+fi
+
+echo "[$METHOD] $URL"
+echo "Environment: $ENV"
+if [ "$ENV" = "production" ]; then
+    echo "WARNING: PRODUCTION REQUEST"
+fi
+echo "---"
+
+# Make request
+if [ -z "$BODY" ]; then
+    RESPONSE=$(curl -s -w "\n%{http_code}" -X "$METHOD" "$URL" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $TOKEN")
+else
+    RESPONSE=$(curl -s -w "\n%{http_code}" -X "$METHOD" "$URL" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $TOKEN" \
+        -d "$BODY")
+fi
+
+# Split response and status code
+HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+BODY_RESPONSE=$(echo "$RESPONSE" | sed '$d')
+
+# Update last request in state
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+else
+    NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+fi
+
+jq ".lastRequest = \"$NOW\"" "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+
+# Output
+echo "Status: $HTTP_CODE"
+echo ""
+echo "Response:"
+echo "$BODY_RESPONSE" | jq . 2>/dev/null || echo "$BODY_RESPONSE"
+
+# Save last response to environment-specific location
+RESPONSE_DIR="$PROJECT_DIR/responses/$ENV"
+mkdir -p "$RESPONSE_DIR"
+LAST_RESPONSE_FILE="$CONFIG_DIR/.last_response.json"
+echo "$BODY_RESPONSE" > "$LAST_RESPONSE_FILE"
+
+# Also save with endpoint name for easy reference
+ENDPOINT_NAME=$(echo "$ENDPOINT" | sed 's|^/||;s|/|-|g')
+echo "$BODY_RESPONSE" | jq . > "$RESPONSE_DIR/${ENDPOINT_NAME}-${METHOD}.json" 2>/dev/null || echo "$BODY_RESPONSE" > "$RESPONSE_DIR/${ENDPOINT_NAME}-${METHOD}.json"
+echo ""
+echo "Response saved to: responses/$ENV/${ENDPOINT_NAME}-${METHOD}.json"

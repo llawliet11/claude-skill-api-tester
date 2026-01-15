@@ -1,0 +1,79 @@
+# Curl Paste Workflow
+
+## Overview
+
+User copies curl from browser DevTools ("Copy as cURL") and pastes to Claude. This workflow handles token extraction, request execution, and response capture.
+
+## Environments
+
+| Environment | API URL | Auto-Execute | Notes |
+|-------------|---------|--------------|-------|
+{{ENVIRONMENT_TABLE}}
+
+**URL Detection:**
+{{URL_DETECTION_RULES}}
+
+## Workflow Steps
+
+### Step 1: User Pastes Curl
+
+User will paste something like:
+```bash
+curl 'https://api.example.com/api/user/profile' \
+  -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' \
+  ...
+```
+
+### Step 2: Parse and Save Token
+
+1. Detect environment from URL
+2. Extract JWT Token from `Authorization: Bearer <token>`
+3. Save token to `config/tokens/<env>.json`
+4. Update `config/state.json` with active environment
+
+Token files:
+{{TOKEN_FILES_LIST}}
+
+### Step 3: Execute Request (Safe Environments Only by Default)
+
+For **safe environments** (canExecute: true): Execute immediately
+```bash
+./scripts/request.sh <METHOD> <ENDPOINT> [BODY]
+```
+
+For **production**:
+- WARN user and ask for confirmation
+- Only execute if user explicitly requests
+
+### Step 4: Save Response
+
+Responses are saved per environment:
+```
+responses/
+{{RESPONSE_DIRS}}
+```
+
+### Step 5: Report to User
+
+Report:
+- Response status
+- Environment used
+- Response saved location
+- Ask what to do next (if anything)
+
+## Token Management
+
+- Tokens are stored per environment
+- Token from browser is valid for 7 days
+- Each environment has its own token file
+- Switching environments uses the corresponding token
+
+## Production Safety
+
+**NEVER execute production requests automatically.**
+
+When production URL detected:
+1. Parse and save token (this is safe)
+2. WARN user: "Production environment detected"
+3. Ask: "Do you want to execute this request on production?"
+4. Only execute if user confirms

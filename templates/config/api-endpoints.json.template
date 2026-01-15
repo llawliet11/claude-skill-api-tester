@@ -1,0 +1,23 @@
+{
+  "lastUpdated": "{{TODAY}}",
+  "sourceProject": "{{SOURCE_PROJECT_NAME}}",
+  "sourceFile": "src/api/",
+  "endpoints": {
+    "AUTH": {
+      "LOGIN": {
+        "method": "POST",
+        "path": "/api/auth/login",
+        "description": "User authentication",
+        "payload": {
+          "email": "string",
+          "password": "string"
+        }
+      },
+      "PROFILE": {
+        "method": "GET",
+        "path": "/api/auth/profile",
+        "description": "Get current user profile"
+      }
+    }
+  }
+}
