@@ -139,18 +139,66 @@ Create project structure at `<parent-dir>/<project-name>-api-tester/`:
 
 ## Step 5: Update Frontend Project
 
+### 5.1 Add api-tester to allowed directories
+
 Add api-tester directory to frontend's `.claude/settings.local.json`:
 
 ```json
 {
   "permissions": {
-    "allow": [
-      "Read(<api-tester-path>/**)",
-      "Write(<api-tester-path>/**)"
+    "additionalDirectories": [
+      "<api-tester-path>"
     ]
   }
 }
 ```
+
+### 5.2 Create API Tester Trigger Rule
+
+**IMPORTANT**: Create a trigger rule in the **source frontend project** so Claude knows when to use the api-tester.
+
+Create file: `<source-project>/.claude/rules/api-tester-trigger.md`
+
+Content:
+
+    # API Tester Trigger Rules
+
+    ## When to Use API Tester
+
+    Automatically use the API Tester project when:
+
+    1. **User mentions "api-tester"** - Any mention of api-tester, API tester, or similar
+    2. **User pastes a curl command** - Detected by `curl '...` or `curl "...` pattern
+    3. **User wants to test an API endpoint** - Phrases like "test this API", "call this endpoint"
+    4. **User mentions API URLs** - Any of these domains:
+       <list detected environment URLs>
+
+    ## API Tester Location
+
+    <api-tester-path>
+
+    ## Curl Paste Workflow
+
+    When user pastes a curl command:
+
+    1. **Parse curl** - Extract URL, method, headers, body, and token
+    2. **Detect environment** from URL domain
+    3. **Save token** to `config/tokens/<env>.json`
+    4. **Execute using script** - ALWAYS use `./scripts/request.sh` instead of raw curl
+    5. **Response auto-saved** to `responses/<env>/<endpoint>-<METHOD>.json`
+
+    ### Execute Request Command
+
+    ```bash
+    cd <api-tester-path>
+    ./scripts/request.sh <METHOD> <ENDPOINT> '<BODY>'
+    ```
+
+    ## Important
+
+    - **NEVER** run raw curl commands for project APIs
+    - **ALWAYS** use `./scripts/request.sh` to ensure responses are saved
+    - **ALWAYS** save tokens to the appropriate environment file before executing
 
 ## Step 6: Check & Update Project Memory
 
