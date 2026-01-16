@@ -50,8 +50,25 @@ cd {{API_TESTER_PATH}}
 ./scripts/request.sh POST /api/v1/login '{"email":"test@example.com"}'
 ```
 
+## Large Response Handling (>=15KB)
+
+After saving response, check file size. If >= 15KB:
+
+1. Run `node scripts/analyze.js` to get summary (DO NOT read full file)
+2. Ask user for filter criteria in natural language
+3. Generate JS filter expression based on user request
+4. Run `node scripts/slice.js` to filter and save to `responses/sliced/`
+5. Read sliced file (now small enough for context)
+
+Check existing sliced data before re-slicing:
+
+```bash
+ls {{API_TESTER_PATH}}/responses/sliced/
+```
+
 ## Important
 
 - **NEVER** run raw curl commands for project APIs
 - **ALWAYS** use `./scripts/request.sh` to ensure responses are saved
 - **ALWAYS** save tokens to the appropriate environment file before executing
+- **NEVER** read response files >= 15KB directly - use analyze.js first
