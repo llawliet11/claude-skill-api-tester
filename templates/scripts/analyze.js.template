@@ -1,0 +1,118 @@
+#!/usr/bin/env node
+
+/**
+ * Analyze JSON response file without loading full content into memory
+ * Usage: node analyze.js <file-path>
+ *
+ * Output: Summary with file size, record count, fields, unique values, time range
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+const filePath = process.argv[2];
+
+if (!filePath) {
+  console.error('Usage: node analyze.js <file-path>');
+  process.exit(1);
+}
+
+if (!fs.existsSync(filePath)) {
+  console.error(`File not found: ${filePath}`);
+  process.exit(1);
+}
+
+const stats = fs.statSync(filePath);
+const fileSizeKB = (stats.size / 1024).toFixed(2);
+
+// Read and parse JSON
+const content = fs.readFileSync(filePath, 'utf8');
+let data;
+
+try {
+  data = JSON.parse(content);
+} catch (e) {
+  console.error(`Invalid JSON: ${e.message}`);
+  process.exit(1);
+}
+
+const isArray = Array.isArray(data);
+const records = isArray ? data : [data];
+const recordCount = records.length;
+
+// Get field names from first record
+const fields = recordCount > 0 ? Object.keys(records[0]) : [];
+
+// Analyze unique values for common key fields
+const commonKeyFields = ['id', 'type', 'status', 'category', 'env', 'staId', 'ifId', 'progId', 'userId', 'orgId'];
+const uniqueValues = {};
+
+fields.forEach(field => {
+  // Check if field is a common key field or ends with 'Id', 'Type', 'Status'
+  const isKeyField = commonKeyFields.includes(field) ||
+                     /Id$|Type$|Status$|State$|Category$/i.test(field);
+
+  if (isKeyField) {
+    const values = [...new Set(records.map(r => r[field]).filter(v => v != null))];
+    if (values.length <= 20) {
+      uniqueValues[field] = values.sort();
+    } else {
+      uniqueValues[field] = `${values.length} unique values`;
+    }
+  }
+});
+
+// Detect time range if timestamp field exists
+let timeRange = null;
+const timeFields = ['ts', 'timestamp', 'createdAt', 'created_at', 'date', 'time', 'datetime'];
+const timeField = fields.find(f => timeFields.includes(f) || /time|date/i.test(f));
+
+if (timeField) {
+  const timestamps = records
+    .map(r => r[timeField])
+    .filter(t => t != null)
+    .sort();
+
+  if (timestamps.length > 0) {
+    timeRange = {
+      field: timeField,
+      from: timestamps[0],
+      to: timestamps[timestamps.length - 1]
+    };
+  }
+}
+
+// Output summary
+console.log('='.repeat(50));
+console.log('RESPONSE ANALYSIS');
+console.log('='.repeat(50));
+console.log(`File: ${path.basename(filePath)}`);
+console.log(`Size: ${fileSizeKB} KB`);
+console.log(`Type: ${isArray ? 'Array' : 'Object'}`);
+console.log(`Records: ${recordCount}`);
+console.log(`Fields: ${fields.join(', ')}`);
+
+if (Object.keys(uniqueValues).length > 0) {
+  console.log('\nKey Field Values:');
+  Object.entries(uniqueValues).forEach(([field, values]) => {
+    if (Array.isArray(values)) {
+      console.log(`  ${field}: [${values.join(', ')}]`);
+    } else {
+      console.log(`  ${field}: ${values}`);
+    }
+  });
+}
+
+if (timeRange) {
+  console.log(`\nTime Range (${timeRange.field}):`);
+  console.log(`  From: ${timeRange.from}`);
+  console.log(`  To:   ${timeRange.to}`);
+}
+
+// Sample first record
+if (recordCount > 0) {
+  console.log('\nFirst Record Sample:');
+  console.log(JSON.stringify(records[0], null, 2));
+}
+
+console.log('='.repeat(50));

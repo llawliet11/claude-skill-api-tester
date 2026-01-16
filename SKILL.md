@@ -130,8 +130,12 @@ Create project structure at `<parent-dir>/<project-name>-api-tester/`:
 ├── scripts/
 │   ├── request.sh
 │   ├── parse-curl.sh
-│   └── generate-postman.sh
-├── responses/            (empty, git-ignored)
+│   ├── generate-postman.sh
+│   ├── analyze.js        # Quick summary of large responses
+│   └── slice.js          # Filter response with JS expression
+├── responses/
+│   ├── <env>/            # Raw responses per environment
+│   └── sliced/           # Filtered/sliced data (reusable)
 ├── postman/
 ├── .gitignore
 └── CLAUDE.local.md
@@ -305,6 +309,8 @@ Templates are stored in: `~/.claude/skills/api-tester-init/templates/`
 | `scripts/request.sh.template` | `scripts/request.sh` |
 | `scripts/parse-curl.sh.template` | `scripts/parse-curl.sh` |
 | `scripts/generate-postman.sh.template` | `scripts/generate-postman.sh` |
+| `scripts/analyze.js.template` | `scripts/analyze.js` |
+| `scripts/slice.js.template` | `scripts/slice.js` |
 | `rules/curl-workflow.md.template` | `.claude/rules/curl-workflow.md` |
 | `rules/api-testing.md.template` | `.claude/rules/api-testing.md` |
 | `config/environments.json.template` | `config/environments.json` |
@@ -398,6 +404,54 @@ To start testing:
 | No `package.json` | Use folder name as project name |
 | Output directory exists | Ask to overwrite or choose different name |
 | No write permission | Show error and suggest alternative location |
+
+## Handling Large Responses (>=15KB)
+
+**IMPORTANT**: The generated api-tester includes scripts to handle large responses without overflowing Claude's context.
+
+### Workflow for Large Responses
+
+After saving response, check file size. If file >= 15KB:
+
+1. **Run analyze.js** to get summary:
+
+   ```bash
+   node scripts/analyze.js responses/<env>/<file>.json
+   ```
+
+   Output: file size, record count, fields, unique values, time range
+
+2. **Ask user for filter criteria** (natural language):
+   - "Response has 3205 records (554KB). What filter criteria do you want?"
+   - User may say: "Get records from Jan 7" or "Filter by status = active"
+
+3. **Generate JS filter expression** based on user request:
+
+   ```javascript
+   data.filter(r => r.status === 'active')
+   data.filter(r => r.ts.startsWith('2026-01-07'))
+   data.slice(0, 10)
+   ```
+
+4. **Execute slice.js** to filter and save:
+
+   ```bash
+   node scripts/slice.js \
+     responses/<env>/<source>.json \
+     responses/sliced/<descriptive-name>.json \
+     "<filter-expression>"
+   ```
+
+5. **Read sliced file** (now small enough for context)
+
+### Sliced File Naming Convention
+
+Format: `<env>-<source>-<filter-description>.json`
+
+Examples:
+
+- `staging-users-active.json`
+- `production-orders-jan2026.json`
 
 ## Notes
 

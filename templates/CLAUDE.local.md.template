@@ -27,8 +27,12 @@ The main application (source of API definitions):
 ├── scripts/
 │   ├── request.sh                # API request script
 │   ├── parse-curl.sh             # Curl parser
-│   └── generate-postman.sh       # Postman generator
-├── responses/                    # Saved API responses (git-ignored)
+│   ├── generate-postman.sh       # Postman generator
+│   ├── analyze.js                # Quick summary of large responses
+│   └── slice.js                  # Filter response with JS expression
+├── responses/
+│   ├── <env>/                    # Raw responses per environment
+│   └── sliced/                   # Filtered/sliced data (reusable)
 └── postman/                      # Generated Postman files
 ```
 
@@ -63,3 +67,20 @@ The main application (source of API definitions):
 2. **Test**: `./scripts/request.sh <METHOD> <PATH> [BODY]`
 3. **Save**: Responses auto-saved to `responses/<env>/`
 4. **Export**: Generate Postman collection with `./scripts/generate-postman.sh`
+
+## Large Response Handling
+
+For responses >= 15KB, use analyze and slice scripts:
+
+```bash
+# Get summary without loading full file
+node scripts/analyze.js responses/<env>/<file>.json
+
+# Filter with JS expression
+node scripts/slice.js \
+  responses/<env>/<source>.json \
+  responses/sliced/<output>.json \
+  "data.filter(r => r.status === 'active')"
+```
+
+Sliced files are saved in `responses/sliced/` for reuse.

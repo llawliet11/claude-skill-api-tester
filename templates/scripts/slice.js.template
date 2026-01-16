@@ -1,0 +1,82 @@
+#!/usr/bin/env node
+
+/**
+ * Slice/filter JSON response using JavaScript expression
+ * Usage: node slice.js <input-file> <output-file> "<filter-expression>"
+ *
+ * The filter expression receives `data` variable (array or object)
+ *
+ * Examples:
+ *   node slice.js input.json output.json "data.filter(r => r.id === '123')"
+ *   node slice.js input.json output.json "data.filter(r => r.status === 'active')"
+ *   node slice.js input.json output.json "data.slice(0, 10)"
+ *   node slice.js input.json output.json "data.filter(r => r.ts.startsWith('2026-01-07'))"
+ *   node slice.js input.json output.json "data.filter(r => parseInt(r.count) > 100)"
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+const [,, inputFile, outputFile, filterExpression] = process.argv;
+
+if (!inputFile || !outputFile || !filterExpression) {
+  console.error('Usage: node slice.js <input-file> <output-file> "<filter-expression>"');
+  console.error('');
+  console.error('Examples:');
+  console.error('  node slice.js input.json output.json "data.filter(r => r.id === \'123\')"');
+  console.error('  node slice.js input.json output.json "data.filter(r => r.status === \'active\')"');
+  console.error('  node slice.js input.json output.json "data.slice(0, 10)"');
+  process.exit(1);
+}
+
+if (!fs.existsSync(inputFile)) {
+  console.error(`Input file not found: ${inputFile}`);
+  process.exit(1);
+}
+
+// Read input
+const content = fs.readFileSync(inputFile, 'utf8');
+let data;
+
+try {
+  data = JSON.parse(content);
+} catch (e) {
+  console.error(`Invalid JSON in input file: ${e.message}`);
+  process.exit(1);
+}
+
+const inputCount = Array.isArray(data) ? data.length : 1;
+
+// Execute filter expression
+let result;
+try {
+  const filterFn = new Function('data', `return ${filterExpression}`);
+  result = filterFn(data);
+} catch (e) {
+  console.error(`Filter expression error: ${e.message}`);
+  console.error(`Expression: ${filterExpression}`);
+  process.exit(1);
+}
+
+const outputCount = Array.isArray(result) ? result.length : 1;
+
+// Ensure output directory exists
+const outputDir = path.dirname(outputFile);
+if (!fs.existsSync(outputDir)) {
+  fs.mkdirSync(outputDir, { recursive: true });
+}
+
+// Write output
+fs.writeFileSync(outputFile, JSON.stringify(result, null, 2));
+
+const outputStats = fs.statSync(outputFile);
+const outputSizeKB = (outputStats.size / 1024).toFixed(2);
+
+console.log('='.repeat(50));
+console.log('SLICE RESULT');
+console.log('='.repeat(50));
+console.log(`Input:  ${path.basename(inputFile)} (${inputCount} records)`);
+console.log(`Output: ${path.basename(outputFile)} (${outputCount} records, ${outputSizeKB} KB)`);
+console.log(`Filter: ${filterExpression}`);
+console.log(`Saved:  ${outputFile}`);
+console.log('='.repeat(50));
