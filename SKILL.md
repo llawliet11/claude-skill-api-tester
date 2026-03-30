@@ -1,6 +1,7 @@
 ---
 name: api-tester-init
 description: Initialize an API tester project for the current frontend application. Auto-detects project info, environments from .env files, and creates a standalone api-tester with curl workflow scripts. Use when the user asks to "setup api tester", "create api tester", "test API endpoints", "init api testing", or wants to set up a curl-based API testing workflow for a frontend project.
+disable-model-invocation: true
 ---
 
 # API Tester Init Skill
