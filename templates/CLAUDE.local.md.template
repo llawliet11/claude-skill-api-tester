@@ -1,86 +1,79 @@
 # {{PROJECT_DISPLAY_NAME}} API Tester
 
-A development tool for testing {{PROJECT_DISPLAY_NAME}} APIs across environments with Claude Code assistance.
+Standalone development tool for testing {{PROJECT_DISPLAY_NAME}} APIs across environments with Claude Code assistance.
 
-## Source Project
+## Source project
 
-The main application (source of API definitions):
+Main application (source of API definitions):
+
 ```
 {{SOURCE_PROJECT_PATH}}
 ```
 
-## Project Structure
+## Trigger skill
+
+Invoke `/{{PROJECT_NAME}}-api-tester` in any Claude Code session — that skill is defined at `~/.claude/skills/{{PROJECT_NAME}}-api-tester/SKILL.md` and orchestrates the curl-paste workflow against this project.
+
+## Project structure
 
 ```
-{{PROJECT_NAME}}/
-├── CLAUDE.md                     # Project instructions (this file)
+{{PROJECT_NAME}}-api-tester/
+├── CLAUDE.local.md               # This file
 ├── .claude/
 │   └── rules/
-│       ├── curl-workflow.md      # How to handle curl paste
-│       └── api-testing.md        # API testing guidelines
+│       ├── curl-workflow.md      # Curl paste workflow
+│       └── api-testing.md        # API testing notes
 ├── config/
-│   ├── environments.json         # Environment configs
-│   ├── tokens/                   # JWT tokens (git-ignored)
-│   └── state.json                # Current state (git-ignored)
+│   ├── environments.json         # baseUrl + canExecute per env
+│   ├── state.json                # activeEnvironment + lastRequest (git-ignored)
+│   └── tokens/                   # bearer tokens per env (git-ignored)
 ├── reference/
-│   └── api-endpoints.json        # All known API endpoints
+│   └── api-endpoints.json        # known endpoints catalog
 ├── scripts/
-│   ├── request.sh                # API request script
-│   ├── parse-curl.sh             # Curl parser
-│   ├── generate-postman.sh       # Postman generator
-│   ├── analyze.js                # Quick summary of large responses
-│   └── slice.js                  # Filter response with JS expression
+│   ├── request.sh                # main request runner (persists req + res)
+│   ├── parse-curl.sh             # curl parser helper
+│   ├── generate-postman.sh       # Postman exporter
+│   ├── analyze.js                # large-response summariser
+│   └── slice.js                  # JS-filter slicer
+├── requests/
+│   └── <env>/                    # request body + _meta per call (git-ignored)
 ├── responses/
-│   ├── <env>/                    # Raw responses per environment
-│   └── sliced/                   # Filtered/sliced data (reusable)
-└── postman/                      # Generated Postman files
+│   ├── <env>/                    # pretty JSON responses per env (git-ignored)
+│   └── sliced/                   # filtered subsets (reusable)
+└── postman/                      # generated Postman collections
 ```
 
 ## Environments
 
-| Environment | API URL | Use Case |
-|-------------|---------|----------|
+| Environment | API URL | canExecute |
+|-------------|---------|------------|
 {{ENVIRONMENT_TABLE}}
 
-## Quick Commands
+## Quick commands
 
 ```bash
-# Test endpoint
 ./scripts/request.sh GET /api/user/profile
 ./scripts/request.sh POST /api/endpoint '{"key": "value"}'
-
-# Generate Postman collection
+./scripts/request.sh GET /api/endpoint '' production   # explicit env override
 ./scripts/generate-postman.sh
 ```
 
-## Key Files
+## File naming
 
-| File | Purpose |
-|------|---------|
-| `reference/api-endpoints.json` | All documented API endpoints |
-| `config/state.json` | Current auth token & environment |
-| `.claude/rules/*.md` | Claude instructions for this project |
+Endpoint name = leading `/` stripped, remaining `/` replaced with `-`.
 
-## Workflow
+Example: `/api/Reports/daily` → `api-Reports-daily-GET.json`.
 
-1. **Paste Curl**: Copy curl from browser DevTools, paste here
-2. **Test**: `./scripts/request.sh <METHOD> <PATH> [BODY]`
-3. **Save**: Responses auto-saved to `responses/<env>/`
-4. **Export**: Generate Postman collection with `./scripts/generate-postman.sh`
+## Large responses (>=15KB)
 
-## Large Response Handling
-
-For responses >= 15KB, use analyze and slice scripts:
+NEVER read directly. Run summary first, then filter:
 
 ```bash
-# Get summary without loading full file
 node scripts/analyze.js responses/<env>/<file>.json
-
-# Filter with JS expression
 node scripts/slice.js \
   responses/<env>/<source>.json \
   responses/sliced/<output>.json \
   "data.filter(r => r.status === 'active')"
 ```
 
-Sliced files are saved in `responses/sliced/` for reuse.
+Sliced files live in `responses/sliced/` and are reusable.

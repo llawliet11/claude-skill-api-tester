@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# {{PROJECT_NAME}} API Request Script
+# {{PROJECT_DISPLAY_NAME}} API Request Script
 # Usage: ./request.sh <method> <endpoint> [body] [env]
 # Example: ./request.sh GET /api/user/profile
 # Example: ./request.sh POST /api/reports '{"siteId": "123"}'
@@ -55,19 +55,26 @@ fi
 # Load environment config
 ENV_CONFIG="$CONFIG_DIR/environments.json"
 BASE_URL=$(jq -r ".$ENV.baseUrl" "$ENV_CONFIG")
-CAN_EXECUTE=$(jq -r ".$ENV.canExecute" "$ENV_CONFIG")
 
 if [ "$BASE_URL" == "null" ]; then
     echo "Error: Environment '$ENV' not found in environments.json"
     exit 1
 fi
 
-# Warn and block production unless explicitly allowed
-if [ "$ENV" = "production" ] && [ "$CAN_EXECUTE" = "false" ]; then
-    echo "WARNING: Production environment!"
-    echo "Execution blocked by default. Use env override to force:"
-    echo "  ./request.sh $METHOD $ENDPOINT '$BODY' production"
-    exit 1
+# Warn on mutating requests on production (POST, PUT, DELETE, PATCH)
+# Interactive terminal: prompt. Non-interactive (Claude Code): just warn — Claude handles confirmation.
+if [ "$ENV" = "production" ] && [ "$METHOD" != "GET" ]; then
+    if [ -t 0 ]; then
+        echo "WARNING: $METHOD request on PRODUCTION environment!"
+        echo "Endpoint: $ENDPOINT"
+        read -p "Continue? (y/N): " confirm
+        if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+            echo "Aborted."
+            exit 1
+        fi
+    else
+        echo "WARNING: $METHOD request on PRODUCTION environment!"
+    fi
 fi
 
 # Build full URL
@@ -100,14 +107,13 @@ fi
 HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
 BODY_RESPONSE=$(echo "$RESPONSE" | sed '$d')
 
-# Update last request in state
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-else
-    NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-fi
+# Timestamp (ISO-8601 UTC)
+NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-jq ".lastRequest = \"$NOW\"" "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+# Update last request in state (if state.json exists)
+if [ -f "$STATE_FILE" ]; then
+    jq ".lastRequest = \"$NOW\"" "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+fi
 
 # Output
 echo "Status: $HTTP_CODE"
@@ -115,14 +121,39 @@ echo ""
 echo "Response:"
 echo "$BODY_RESPONSE" | jq . 2>/dev/null || echo "$BODY_RESPONSE"
 
-# Save last response to environment-specific location
+# Save response per environment
 RESPONSE_DIR="$PROJECT_DIR/responses/$ENV"
 mkdir -p "$RESPONSE_DIR"
 LAST_RESPONSE_FILE="$CONFIG_DIR/.last_response.json"
 echo "$BODY_RESPONSE" > "$LAST_RESPONSE_FILE"
 
-# Also save with endpoint name for easy reference
 ENDPOINT_NAME=$(echo "$ENDPOINT" | sed 's|^/||;s|/|-|g')
-echo "$BODY_RESPONSE" | jq . > "$RESPONSE_DIR/${ENDPOINT_NAME}-${METHOD}.json" 2>/dev/null || echo "$BODY_RESPONSE" > "$RESPONSE_DIR/${ENDPOINT_NAME}-${METHOD}.json"
+RESPONSE_FILE="$RESPONSE_DIR/${ENDPOINT_NAME}-${METHOD}.json"
+echo "$BODY_RESPONSE" | jq . > "$RESPONSE_FILE" 2>/dev/null || echo "$BODY_RESPONSE" > "$RESPONSE_FILE"
 echo ""
 echo "Response saved to: responses/$ENV/${ENDPOINT_NAME}-${METHOD}.json"
+
+# Save request body + metadata (mirrors the response file path under requests/)
+REQUEST_DIR="$PROJECT_DIR/requests/$ENV"
+mkdir -p "$REQUEST_DIR"
+REQUEST_FILE="$REQUEST_DIR/${ENDPOINT_NAME}-${METHOD}.json"
+if [ -z "$BODY" ]; then
+    BODY_JSON="null"
+else
+    BODY_JSON=$(echo "$BODY" | jq . 2>/dev/null || echo "$BODY" | jq -Rs .)
+fi
+cat > "$REQUEST_FILE" <<EOF
+{
+  "_meta": {
+    "method": "$METHOD",
+    "url": "$URL",
+    "env": "$ENV",
+    "executedAt": "$NOW",
+    "status": $HTTP_CODE,
+    "tokenSource": "config/tokens/$ENV.json",
+    "responseFile": "responses/$ENV/${ENDPOINT_NAME}-${METHOD}.json"
+  },
+  "body": $BODY_JSON
+}
+EOF
+echo "Request saved to: requests/$ENV/${ENDPOINT_NAME}-${METHOD}.json"

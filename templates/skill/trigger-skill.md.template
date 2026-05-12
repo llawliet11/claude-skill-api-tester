@@ -1,0 +1,125 @@
+---
+name: {{PROJECT_NAME}}-api-tester
+description: This skill should be used when the user invokes "/{{PROJECT_NAME}}-api-tester" with a pasted curl command targeting {{PROJECT_DISPLAY_NAME}} APIs ({{API_HOSTS_INLINE}}). Parses curl, saves bearer token to config/tokens/<env>.json, executes via scripts/request.sh which persists request body to requests/<env>/ and response to responses/<env>/, and triages large responses (>=15KB) via analyze.js + slice.js. Explicit user invocation only — do not auto-fire on raw curl pastes.
+disable-model-invocation: true
+argument-hint: <paste curl command on next line, or pass METHOD ENDPOINT BODY directly>
+---
+
+# {{PROJECT_NAME}}-api-tester
+
+Run requests against {{PROJECT_DISPLAY_NAME}} backend APIs through the dedicated tester project so request and response are both persisted, large responses are sliced before reading, and tokens are reused across calls.
+
+## Project location
+
+```
+{{API_TESTER_PATH}}
+```
+
+This project is shared with the user's manual workflow — never overwrite its config/state files casually.
+
+## When the skill runs
+
+The user explicitly invokes `/{{PROJECT_NAME}}-api-tester`. Two input shapes:
+
+1. **Pasted curl** (most common). Parse it.
+2. **Direct args** — `/{{PROJECT_NAME}}-api-tester GET /api/user/profile` or `/{{PROJECT_NAME}}-api-tester POST /api/endpoint '{"id":1}'`.
+
+If the input is ambiguous, ask once: which environment, which body shape.
+
+## Environment detection
+
+| URL host | Env name (matches `config/tokens/<env>.json`) |
+|---|---|
+{{ENV_HOST_TABLE}}
+
+Production POST/PUT/DELETE/PATCH writes — **warn the user and confirm before executing**. The script also warns, but the skill must not silently send mutating prod traffic. GET on production is fine.
+
+## Workflow
+
+### 1. Parse the curl
+
+Extract:
+- Method (default `GET` if `-X` absent and no `--data*`)
+- URL → derive `<env>` from host, then strip host so endpoint starts with `/`
+- Bearer token from `Authorization: Bearer <token>`
+- Body from `--data`, `--data-raw`, `-d`, `--data-binary`
+
+The `Content-Type` from the original curl is informational. `request.sh` always sends `application/json`.
+
+### 2. Save token
+
+Write to `config/tokens/<env>.json`:
+
+```json
+{ "token": "<bearer-token>" }
+```
+
+Overwrite is fine — tokens rotate. If the curl has no Bearer header, skip this step and reuse the existing token file.
+
+### 3. Execute via `scripts/request.sh`
+
+```bash
+cd {{API_TESTER_PATH}}
+./scripts/request.sh <METHOD> <ENDPOINT> '<BODY>' <ENV>
+```
+
+The 4th arg `<ENV>` is optional — if omitted, the script reads `config/state.json.activeEnvironment`. Pass it explicitly when the curl host disagrees with the active env.
+
+`request.sh` saves both:
+- `requests/<env>/<endpoint-slash-replaced>-<METHOD>.json` — body + `_meta` (url, status, executedAt, token source, response file pointer)
+- `responses/<env>/<endpoint-slash-replaced>-<METHOD>.json` — pretty-printed JSON response
+
+Endpoint name uses `/` → `-`, e.g. `/api/Reports/daily` → `api-Reports-daily`.
+
+### 4. Read or triage the response
+
+Check size after save:
+
+```bash
+RESPONSE_FILE=responses/<env>/<endpoint>-<METHOD>.json
+SIZE=$(stat -f%z "$RESPONSE_FILE" 2>/dev/null || stat -c%s "$RESPONSE_FILE")
+```
+
+| Size | Action |
+|---|---|
+| < 15KB | Read directly with the `Read` tool |
+| >= 15KB | NEVER read directly. Run `node scripts/analyze.js`, ask the user for filter criteria, run `node scripts/slice.js` with a JS filter expression, then read the sliced file from `responses/sliced/` |
+
+Before slicing, list `responses/sliced/` to reuse an existing slice.
+
+### 5. Report back
+
+State which env, status code, where the request was saved, where the response was saved. Surface anything surprising in the response shape (new fields, unexpected enum values, errors).
+
+## Hard rules
+
+- **NEVER run raw `curl` for {{PROJECT_DISPLAY_NAME}} project APIs.** Always go through `scripts/request.sh` so the req/res pair is persisted.
+- **NEVER read response files >= 15KB with the `Read` tool directly.** Use `analyze.js` + `slice.js`.
+- **NEVER commit `config/tokens/*.json` or `responses/`** — the project's `.gitignore` covers them; do not work around it.
+- **NEVER mutate production** (POST/PUT/DELETE/PATCH) without explicit user confirmation in the same turn.
+- Tokens expire roughly every 7 days. If a request returns `401`, ask the user for a fresh curl rather than guessing.
+
+## File naming convention
+
+```
+config/tokens/<env>.json                  # bearer per env
+config/state.json                         # activeEnvironment + lastRequest timestamp
+requests/<env>/<endpoint>-<METHOD>.json   # request body + _meta
+responses/<env>/<endpoint>-<METHOD>.json  # pretty response
+responses/sliced/<descriptive-name>.json  # filtered subsets for re-reading
+```
+
+`<endpoint>` = leading `/` stripped, remaining `/` replaced with `-`.
+
+## Troubleshooting
+
+- **`Error: No token file for environment 'X'`** → curl had no Bearer; ask user to re-paste with `-H 'Authorization: Bearer ...'`.
+- **`Status: 401`** → token expired. Don't retry, ask for fresh curl.
+- **Response is HTML / starts with `<!DOCTYPE`** → wrong host or auth bounce. Verify env detection and token.
+
+## Resources
+
+- `scripts/request.sh` (in the api-tester project, NOT this skill) — does the heavy lifting; do not duplicate its logic here.
+- `scripts/analyze.js` — summarises large JSON arrays (record count, fields, time range).
+- `scripts/slice.js` — applies a JS filter expression and writes to `responses/sliced/`.
+- `reference/api-endpoints.json` — known endpoints catalog (in the api-tester project).

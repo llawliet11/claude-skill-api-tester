@@ -1,79 +1,58 @@
 # Curl Paste Workflow
 
-## Overview
-
-User copies curl from browser DevTools ("Copy as cURL") and pastes to Claude. This workflow handles token extraction, request execution, and response capture.
+This rule lives inside the **api-tester project** itself. The global trigger skill is `~/.claude/skills/{{PROJECT_NAME}}-api-tester/SKILL.md` — that's what fires on `/{{PROJECT_NAME}}-api-tester`. This file documents how `request.sh` and the file layout work for anyone reading the api-tester repo directly.
 
 ## Environments
 
-| Environment | API URL | Auto-Execute | Notes |
-|-------------|---------|--------------|-------|
+| Environment | API URL | Notes |
+|-------------|---------|-------|
 {{ENVIRONMENT_TABLE}}
 
-**URL Detection:**
+URL host → env detection:
 {{URL_DETECTION_RULES}}
 
-## Workflow Steps
+## Workflow steps
 
-### Step 1: User Pastes Curl
+### 1. User pastes curl
 
-User will paste something like:
 ```bash
 curl 'https://api.example.com/api/user/profile' \
-  -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' \
+  -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIs...' \
   ...
 ```
 
-### Step 2: Parse and Save Token
+### 2. Parse + save token
 
-1. Detect environment from URL
-2. Extract JWT Token from `Authorization: Bearer <token>`
-3. Save token to `config/tokens/<env>.json`
-4. Update `config/state.json` with active environment
+1. Detect environment from URL host.
+2. Extract bearer from `Authorization: Bearer <token>`.
+3. Save to `config/tokens/<env>.json` as `{"token": "<bearer>"}`.
+4. Optionally bump `config/state.json.activeEnvironment`.
 
 Token files:
 {{TOKEN_FILES_LIST}}
 
-### Step 3: Execute Request (Safe Environments Only by Default)
+### 3. Execute via request.sh
 
-For **safe environments** (canExecute: true): Execute immediately
 ```bash
-./scripts/request.sh <METHOD> <ENDPOINT> [BODY]
+./scripts/request.sh <METHOD> <ENDPOINT> '<BODY>' [<ENV>]
 ```
 
-For **production**:
-- WARN user and ask for confirmation
-- Only execute if user explicitly requests
+The script persists both:
 
-### Step 4: Save Response
+- `requests/<env>/<endpoint>-<METHOD>.json` — body + `_meta`
+- `responses/<env>/<endpoint>-<METHOD>.json` — pretty JSON response
 
-Responses are saved per environment:
-```
-responses/
-{{RESPONSE_DIRS}}
-```
+### 4. Report
 
-### Step 5: Report to User
+Surface status code, env used, both file paths, and anything surprising in the response shape.
 
-Report:
-- Response status
-- Environment used
-- Response saved location
-- Ask what to do next (if anything)
+## Hard rules
 
-## Token Management
+- NEVER run raw `curl` against project APIs — always go through `scripts/request.sh` so the req/res pair is persisted.
+- NEVER read a response file `>= 15KB` directly. Run `node scripts/analyze.js` first, then `node scripts/slice.js` with a JS filter.
+- NEVER mutate production (POST/PUT/DELETE/PATCH) without explicit user confirmation in the same turn.
+- NEVER commit `config/tokens/*.json` or `responses/` — `.gitignore` already covers them.
 
-- Tokens are stored per environment
-- Token from browser is valid for 7 days
-- Each environment has its own token file
-- Switching environments uses the corresponding token
+## Token lifetime
 
-## Production Safety
-
-**NEVER execute production requests automatically.**
-
-When production URL detected:
-1. Parse and save token (this is safe)
-2. WARN user: "Production environment detected"
-3. Ask: "Do you want to execute this request on production?"
-4. Only execute if user confirms
+Bearer tokens from the browser are valid for roughly 7 days. On `401`, ask the user for a fresh curl rather than guessing.
